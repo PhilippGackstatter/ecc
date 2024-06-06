@@ -1,12 +1,14 @@
+use num::BigInt;
+
 #[derive(Debug, PartialEq)]
 pub struct ExtendedEuclideanResult {
-    pub gcd: i64,
-    pub bezout_coefficient_a: i64,
-    pub bezout_coefficient_b: i64,
+    pub gcd: BigInt,
+    pub bezout_coefficient_a: BigInt,
+    pub bezout_coefficient_b: BigInt,
 }
 
 impl ExtendedEuclideanResult {
-    pub fn new(gcd: i64, bezout_coefficient_a: i64, bezout_coefficient_b: i64) -> Self {
+    pub fn new(gcd: BigInt, bezout_coefficient_a: BigInt, bezout_coefficient_b: BigInt) -> Self {
         Self {
             gcd,
             bezout_coefficient_a,
@@ -16,7 +18,7 @@ impl ExtendedEuclideanResult {
 }
 
 /// Runs the extended euclidean algorithm on `a` and `b`.
-pub fn extended_euclidean(a: i64, b: i64) -> ExtendedEuclideanResult {
+pub fn extended_euclidean(a: BigInt, b: BigInt) -> ExtendedEuclideanResult {
     let mut remainder_prev;
     let mut remainder;
     let mut s_prev;
@@ -27,37 +29,37 @@ pub fn extended_euclidean(a: i64, b: i64) -> ExtendedEuclideanResult {
     if a > b {
         remainder_prev = a;
         remainder = b;
-        s_prev = 1;
-        s = 0;
-        t_prev = 0;
-        t = 1;
+        s_prev = BigInt::from(1);
+        s = BigInt::from(0);
+        t_prev = BigInt::from(0);
+        t = BigInt::from(1);
     } else {
         remainder_prev = b;
         remainder = a;
-        s_prev = 0;
-        s = 1;
-        t_prev = 1;
-        t = 0;
+        s_prev = BigInt::from(0);
+        s = BigInt::from(1);
+        t_prev = BigInt::from(1);
+        t = BigInt::from(0);
     }
 
-    while remainder != 0 {
-        let quotient = remainder_prev / remainder;
+    while remainder != BigInt::ZERO {
+        let quotient = remainder_prev.clone() / remainder.clone();
 
-        let previous_remainder = remainder;
-        remainder = remainder_prev - quotient * remainder;
+        let previous_remainder = remainder.clone();
+        remainder = remainder_prev - quotient.clone() * remainder;
         remainder_prev = previous_remainder;
 
-        let previous_s = s;
-        s = s_prev - quotient * s;
+        let previous_s = s.clone();
+        s = s_prev - quotient.clone() * s;
         s_prev = previous_s;
 
-        let previous_t = t;
+        let previous_t = t.clone();
         t = t_prev - quotient * t;
         t_prev = previous_t;
     }
 
     // Return GCD as a nonnegative integer, adjusting the coefficients accordingly.
-    if remainder_prev < 0 {
+    if remainder_prev < BigInt::ZERO {
         remainder_prev = remainder_prev * -1;
         s_prev = s_prev * -1;
         t_prev = t_prev * -1;
@@ -71,7 +73,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_eea() {
+    fn test_extended_euclidean_algorithm() {
         let tests = [
             (240, 46, 2),
             (46, 240, 2),
@@ -83,10 +85,13 @@ mod tests {
             (0, 1, 1),
             (1030203, 4393920, 3),
             (92874881, 2343483, 1),
-        ];
+        ]
+        .into_iter()
+        .map(|(a, b, c)| (BigInt::from(a), BigInt::from(b), BigInt::from(c)))
+        .collect::<Vec<_>>();
 
         for (a, b, expected_gcd) in tests {
-            let result = extended_euclidean(a, b);
+            let result = extended_euclidean(a.clone(), b.clone());
             assert_eq!(result.gcd, expected_gcd);
             assert_eq!(
                 a * result.bezout_coefficient_a + b * result.bezout_coefficient_b,

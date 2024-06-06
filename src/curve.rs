@@ -1,3 +1,5 @@
+use num::{bigint::Sign, BigInt};
+
 use crate::{extended_euclidean::extended_euclidean, CurvePoint};
 
 pub struct Curve {
@@ -62,7 +64,16 @@ impl Curve {
 
     /// Computes the modular multiplicative inverse `i` of `a mod b`, such that `a * i mod b = 1`.
     pub fn modular_multiplicative_inverse(a: i64, b: i64) -> i64 {
-        extended_euclidean(a, b).bezout_coefficient_a
+        let (sign, result) = extended_euclidean(BigInt::from(a), BigInt::from(b))
+            .bezout_coefficient_a
+            .to_u64_digits();
+
+        let result = result.first().unwrap();
+        if let Sign::Minus = sign {
+            *result as i64 * -1
+        } else {
+            *result as i64
+        }
     }
 
     /// Implements truncated division modulo.
