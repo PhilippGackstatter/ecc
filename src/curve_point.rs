@@ -1,11 +1,16 @@
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+use num::BigInt;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CurvePoint {
     PointAtInfinity,
-    Point { x: i64, y: i64 },
+    Point { x: BigInt, y: BigInt },
 }
 
 impl CurvePoint {
-    pub fn new(x: i64, y: i64) -> Self {
-        Self::Point { x, y }
+    pub fn new(x: impl Into<BigInt>, y: impl Into<BigInt>) -> Self {
+        Self::Point {
+            x: x.into(),
+            y: y.into(),
+        }
     }
 }

@@ -43,14 +43,14 @@ pub fn extended_euclidean(a: BigInt, b: BigInt) -> ExtendedEuclideanResult {
     }
 
     while remainder != BigInt::ZERO {
-        let quotient = remainder_prev.clone() / remainder.clone();
+        let quotient = &remainder_prev / &remainder;
 
         let previous_remainder = remainder.clone();
-        remainder = remainder_prev - quotient.clone() * remainder;
+        remainder = remainder_prev - &quotient * remainder;
         remainder_prev = previous_remainder;
 
         let previous_s = s.clone();
-        s = s_prev - quotient.clone() * s;
+        s = s_prev - &quotient * s;
         s_prev = previous_s;
 
         let previous_t = t.clone();
