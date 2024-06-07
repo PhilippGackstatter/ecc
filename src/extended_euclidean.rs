@@ -60,9 +60,9 @@ pub fn extended_euclidean(a: BigInt, b: BigInt) -> ExtendedEuclideanResult {
 
     // Return GCD as a nonnegative integer, adjusting the coefficients accordingly.
     if remainder_prev < BigInt::ZERO {
-        remainder_prev = remainder_prev * -1;
-        s_prev = s_prev * -1;
-        t_prev = t_prev * -1;
+        remainder_prev *= -1;
+        s_prev *= -1;
+        t_prev *= -1;
     }
 
     ExtendedEuclideanResult::new(remainder_prev, s_prev, t_prev)
