@@ -122,6 +122,16 @@ mod tests {
         Curve::new(CurvePoint::new(4, 10), 11, 0)
     }
 
+    fn create_bn128_curve() -> Curve {
+        // Definition from https://eips.ethereum.org/EIPS/eip-197.
+        let modulus = BigInt::parse_bytes(
+            b"21888242871839275222246405745257275088696311157297823662689037894645226208583",
+            10,
+        )
+        .expect("should be a valid base 10 number");
+        Curve::new(CurvePoint::new(1, 2), modulus, 0)
+    }
+
     #[test]
     fn can_generate_all_points() {
         let expected_points = [
@@ -170,5 +180,28 @@ mod tests {
         }
 
         assert_eq!(addition_result, multiplication);
+    }
+
+    #[test]
+    fn scalar_point_multiplication_bn128() {
+        // Computed with py_ecc.
+        let scalar = 300_000_000;
+        let expected_result = CurvePoint::new(
+            BigInt::parse_bytes(
+                b"12600240597266143967986535800884193324885833839429757878922176041119260815197",
+                10,
+            )
+            .unwrap(),
+            BigInt::parse_bytes(
+                b"21411986724719982918952311537408507205322239197649094947485347628796002057456",
+                10,
+            )
+            .unwrap(),
+        );
+
+        let bn128 = create_bn128_curve();
+        let actual_result = bn128.multiply(scalar.into(), bn128.generator.clone());
+
+        assert_eq!(expected_result, actual_result);
     }
 }
