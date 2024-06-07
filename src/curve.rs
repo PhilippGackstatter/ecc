@@ -1,4 +1,4 @@
-use num::BigInt;
+use num::{traits::Euclid, BigInt};
 
 use crate::{extended_euclidean::extended_euclidean, CurvePoint};
 
@@ -40,13 +40,13 @@ impl Curve {
                             2 * y_p,
                             self.field_modulus.clone(),
                         ));
-                    let lambda = Self::modulo(lambda, &self.field_modulus);
+                    let lambda = Euclid::rem_euclid(&lambda, &self.field_modulus);
 
                     let x_r = lambda.pow(2) - 2 * x_p;
-                    let x_r = Self::modulo(x_r, &self.field_modulus);
+                    let x_r = Euclid::rem_euclid(&x_r, &self.field_modulus);
 
                     let y_r = lambda * (-&x_r + x_p) - y_p;
-                    let y_r = Self::modulo(y_r, &self.field_modulus);
+                    let y_r = Euclid::rem_euclid(&y_r, &self.field_modulus);
 
                     CurvePoint::Point { x: x_r, y: y_r }
                 } else if x_p == x_q {
@@ -59,13 +59,13 @@ impl Curve {
                             x_q - x_p,
                             self.field_modulus.clone(),
                         );
-                    let lambda = Self::modulo(lambda, &self.field_modulus);
+                    let lambda = Euclid::rem_euclid(&lambda, &self.field_modulus);
 
                     let x_r = lambda.pow(2) - x_p - x_q;
-                    let x_r = Self::modulo(x_r, &self.field_modulus);
+                    let x_r = Euclid::rem_euclid(&x_r, &self.field_modulus);
 
                     let y_r = lambda * (x_p - &x_r) - y_p;
-                    let y_r = Self::modulo(y_r, &self.field_modulus);
+                    let y_r = Euclid::rem_euclid(&y_r, &self.field_modulus);
 
                     CurvePoint::Point { x: x_r, y: y_r }
                 }
@@ -77,59 +77,11 @@ impl Curve {
     pub fn modular_multiplicative_inverse(a: BigInt, b: BigInt) -> BigInt {
         extended_euclidean(a, b).bezout_coefficient_a
     }
-
-    /// Implements truncated division modulo.
-    ///
-    /// In the standard Rust modulo operator: -a % b = -a, but this function returns a result between 0 and `modulus`.
-    pub fn modulo(a: BigInt, modulus: &BigInt) -> BigInt {
-        if a >= BigInt::ZERO {
-            a % modulus
-        } else {
-            let mut remainder = a;
-            loop {
-                let quotient = &remainder / modulus;
-                remainder = &remainder - (&quotient * modulus);
-
-                if quotient == BigInt::ZERO {
-                    if remainder == BigInt::ZERO {
-                        return BigInt::ZERO;
-                    } else {
-                        return modulus + remainder;
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn modulo() {
-        let tests = [
-            (12, 11, 1),
-            (11, 11, 0),
-            (0, 11, 0),
-            (-11, 11, 0),
-            (-10, 11, 1),
-            (-15, 11, 7),
-            (-37, 11, 7),
-            (-111, 11, 10),
-        ]
-        .into_iter()
-        .map(|(a, b, c)| (BigInt::from(a), BigInt::from(b), BigInt::from(c)))
-        .collect::<Vec<_>>();
-
-        for (a, modulus, expected_result) in tests {
-            let actual_result = Curve::modulo(a.clone(), &modulus);
-            assert_eq!(
-                expected_result, actual_result,
-                "expected {a} mod {modulus} to be {expected_result} but was {actual_result}"
-            );
-        }
-    }
 
     #[test]
     fn can_generate_all_points() {
