@@ -21,6 +21,40 @@ impl Curve {
         }
     }
 
+    /// Multiplies `scalar` with `p` in logarithmic time.
+    pub fn multiply(&self, mut scalar: BigInt, p: CurvePoint) -> CurvePoint {
+        if scalar == BigInt::ZERO {
+            return CurvePoint::PointAtInfinity;
+        }
+        // The number of doublings we need to efficiently compute the multiplication.
+        let doublings = (scalar.bits() - 1) as usize;
+
+        // Create the doubling cache.
+        // The ith entry in the cache is the result of 2^i * p.
+        // +1 capacity to account for the 0th entry we add manually.
+        let mut double_cache = Vec::with_capacity(doublings + 1);
+        double_cache.push(p);
+
+        for i in 1..=doublings {
+            double_cache.push(self.add(double_cache[i - 1].clone(), double_cache[i - 1].clone()));
+        }
+
+        let mut result = CurvePoint::PointAtInfinity;
+        let two = BigInt::from(2);
+        while scalar != BigInt::ZERO {
+            // SAFETY: Subtracting 1 is fine since we never enter the loop
+            // if scalar is zero, and hence bits() always returns > 0.
+            let next_smaller_power_of_two = scalar.bits() - 1;
+            scalar -= two.pow(next_smaller_power_of_two as u32);
+            result = self.add(
+                result,
+                double_cache[next_smaller_power_of_two as usize].clone(),
+            );
+        }
+
+        result
+    }
+
     /// Add two points on the elliptic curve.
     ///
     /// Formulas taken from https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication.
@@ -83,6 +117,11 @@ impl Curve {
 mod tests {
     use super::*;
 
+    fn create_test_curve() -> Curve {
+        // Generator Point for curve y^2 = x^3 + 3 mod 11.
+        Curve::new(CurvePoint::new(4, 10), 11, 0)
+    }
+
     #[test]
     fn can_generate_all_points() {
         let expected_points = [
@@ -102,8 +141,7 @@ mod tests {
         ]
         .to_vec();
 
-        // Generator Point for curve y^2 = x^3 + 3 mod 11.
-        let curve = Curve::new(CurvePoint::new(4, 10), 11, 0);
+        let curve = create_test_curve();
 
         let mut computed_points = vec![curve.generator.clone()];
         let mut new_point = curve.generator.clone();
@@ -116,5 +154,21 @@ mod tests {
         }
 
         assert_eq!(expected_points, computed_points);
+    }
+
+    #[test]
+    fn scalar_point_multiplication() {
+        let curve = create_test_curve();
+        // Equal to 2^8 + 2^4 + 2^2 + 2^0 to test doubling implementation.
+        let scalar = 256 + 16 + 4 + 1;
+
+        let multiplication = curve.multiply(scalar.into(), curve.generator.clone());
+
+        let mut addition_result = CurvePoint::PointAtInfinity;
+        for _ in 0..scalar {
+            addition_result = curve.add(addition_result, curve.generator.clone());
+        }
+
+        assert_eq!(addition_result, multiplication);
     }
 }
