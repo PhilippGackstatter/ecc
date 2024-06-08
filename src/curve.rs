@@ -26,6 +26,7 @@ impl Curve {
         if scalar == BigInt::ZERO {
             return CurvePoint::PointAtInfinity;
         }
+
         // The number of doublings we need to efficiently compute the multiplication.
         let doublings = (scalar.bits() - 1) as usize;
 
@@ -203,5 +204,54 @@ mod tests {
         let actual_result = bn128.multiply(scalar.into(), bn128.generator.clone());
 
         assert_eq!(expected_result, actual_result);
+    }
+
+    #[test]
+    fn multiplication_is_associative() {
+        let curve = create_bn128_curve();
+        let left_first = curve.add(
+            curve.add(
+                curve.multiply(5.into(), curve.generator.clone()),
+                curve.multiply(15.into(), curve.generator.clone()),
+            ),
+            curve.multiply(7.into(), curve.generator.clone()),
+        );
+        let right_first = curve.add(
+            curve.multiply(5.into(), curve.generator.clone()),
+            curve.add(
+                curve.multiply(15.into(), curve.generator.clone()),
+                curve.multiply(7.into(), curve.generator.clone()),
+            ),
+        );
+        assert_eq!(left_first, right_first);
+    }
+
+    /// Test that 9/7 * G + 5/7 *G = 14/7 * G = 2 * G.
+    /// This works because G * x = G * (x + curve_order), which implies (x + y) * G mod curve_order = x * G + y * G.
+    #[test]
+    fn encoding_rational_numbers() {
+        let curve = create_bn128_curve();
+        let curve_order_bn128 = BigInt::parse_bytes(
+            b"21888242871839275222246405745257275088548364400416034343698204186575808495617",
+            10,
+        )
+        .unwrap();
+
+        // Encodes the rational number 9 * 1/7.
+        let nine_over_seven = BigInt::from(9)
+            * Curve::modular_multiplicative_inverse(7.into(), curve_order_bn128.clone());
+        let nine_over_seven = Euclid::rem_euclid(&nine_over_seven, &curve_order_bn128);
+
+        // Encodes the rational number 5 * 1/7.
+        let one_half = BigInt::from(5)
+            * Curve::modular_multiplicative_inverse(7.into(), curve_order_bn128.clone());
+        let five_over_seven = Euclid::rem_euclid(&one_half, &curve_order_bn128);
+
+        let whole_multiplication = curve.multiply(2.into(), curve.generator.clone());
+        let rational_multiplication = curve.add(
+            curve.multiply(nine_over_seven, curve.generator.clone()),
+            curve.multiply(five_over_seven, curve.generator.clone()),
+        );
+        assert_eq!(whole_multiplication, rational_multiplication);
     }
 }
