@@ -129,10 +129,7 @@ impl WeierstrassCurve {
 
 #[cfg(test)]
 mod tests {
-    use k256::{
-        elliptic_curve::{sec1::ToEncodedPoint, ScalarPrimitive},
-        FieldBytes,
-    };
+    use k256::elliptic_curve::{self, sec1::ToEncodedPoint};
     use num::bigint::Sign;
 
     use super::*;
@@ -152,7 +149,7 @@ mod tests {
         WeierstrassCurve::new(CurvePoint::new(1, 2), modulus, 0)
     }
 
-    fn create_curve_secp256k1() -> WeierstrassCurve {
+    fn create_secp256k1_curve() -> WeierstrassCurve {
         // Parameters from https://en.bitcoin.it/wiki/Secp256k1.
         let field_modulus = BigInt::parse_bytes(
             b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
@@ -226,7 +223,7 @@ mod tests {
 
     #[test]
     fn scalar_point_multiplication_bn128() {
-        // Computed with py_ecc.
+        // Expected result computed with py_ecc.
         let scalar = 300_000_000;
         let expected_result = CurvePoint::new(
             BigInt::parse_bytes(
@@ -316,20 +313,16 @@ mod tests {
         assert_eq!(whole_multiplication, rational_multiplication);
     }
 
+    /// Test that the public key computation run by k256 and this libary are equivalent.
     #[test]
-    fn k256_equivalence() {
-        // Random, static secret.
-        let sk1 = [
-            74, 250, 66, 158, 170, 197, 152, 171, 211, 234, 79, 156, 26, 40, 2, 70, 42, 165, 126,
-            242, 204, 180, 145, 216, 1, 174, 184, 132, 25, 131, 27, 11,
-        ];
+    fn elliptic_curve_public_key_calculation() {
+        let sk1: [u8; 32] = rand::random();
+
         let sk1_int = BigInt::from_bytes_be(num::bigint::Sign::Plus, &sk1);
-        let sk1 = k256::SecretKey::new(
-            ScalarPrimitive::from_bytes(FieldBytes::from_slice(&sk1)).unwrap(),
-        );
+        let sk1 = k256::SecretKey::from_slice(&sk1).unwrap();
         let pk1 = sk1.public_key();
 
-        let curve = create_curve_secp256k1();
+        let curve = create_secp256k1_curve();
         let pk = curve.multiply(sk1_int, curve.generator.clone());
 
         let CurvePoint::Point { x, y } = &pk else {
@@ -342,5 +335,53 @@ mod tests {
 
         assert_eq!(x, &pk_x);
         assert_eq!(y, &pk_y);
+    }
+
+    /// Test that ECDH run by k256 and this libary are equivalent.
+    #[test]
+    fn elliptic_curve_diffie_hellman() {
+        let sk1: [u8; 32] = rand::random();
+        let sk2: [u8; 32] = rand::random();
+
+        let sk1_int = BigInt::from_bytes_be(num::bigint::Sign::Plus, &sk1);
+        let sk2_int = BigInt::from_bytes_be(num::bigint::Sign::Plus, &sk2);
+
+        // Run ECDH with the k256 library.
+        let sk1 = k256::SecretKey::from_slice(&sk1).unwrap();
+        let sk2 = k256::SecretKey::from_slice(&sk2).unwrap();
+
+        let pk1 = sk1.public_key();
+        let pk2 = sk2.public_key();
+
+        let shared_secret1 =
+            elliptic_curve::ecdh::diffie_hellman(sk1.to_nonzero_scalar(), pk2.as_affine());
+        let shared_secret2 =
+            elliptic_curve::ecdh::diffie_hellman(sk2.to_nonzero_scalar(), pk1.as_affine());
+
+        assert_eq!(
+            shared_secret1.raw_secret_bytes(),
+            shared_secret2.raw_secret_bytes()
+        );
+
+        // Run ECDH with this library.
+        let curve = create_secp256k1_curve();
+        let curve_pk1 = curve.multiply(sk1_int.clone(), curve.generator.clone());
+        let curve_pk2 = curve.multiply(sk2_int.clone(), curve.generator.clone());
+
+        let curve_shared_secret1 = curve.multiply(sk1_int, curve_pk2);
+        let curve_shared_secret2 = curve.multiply(sk2_int, curve_pk1);
+
+        assert_eq!(curve_shared_secret1, curve_shared_secret2);
+
+        // Assert that ECDH was executed the same by both libraries.
+        let shared_secret_x = shared_secret1.raw_secret_bytes().as_slice();
+        let curve_shared_secret_x = curve_shared_secret1
+            .as_coordinates()
+            .unwrap()
+            .0
+            .to_bytes_be()
+            .1;
+
+        assert_eq!(shared_secret_x, curve_shared_secret_x);
     }
 }
