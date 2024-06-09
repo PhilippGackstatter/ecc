@@ -2,13 +2,13 @@ use num::{traits::Euclid, BigInt};
 
 use crate::{extended_euclidean::extended_euclidean, CurvePoint};
 
-pub struct Curve {
+pub struct WeierstrassCurve {
     pub generator: CurvePoint,
     pub field_modulus: BigInt,
     pub parameter_a: BigInt,
 }
 
-impl Curve {
+impl WeierstrassCurve {
     pub fn new(
         generator: CurvePoint,
         field_modulus: impl Into<BigInt>,
@@ -133,19 +133,19 @@ impl Curve {
 mod tests {
     use super::*;
 
-    fn create_test_curve() -> Curve {
+    fn create_test_curve() -> WeierstrassCurve {
         // Generator Point for curve y^2 = x^3 + 3 mod 11.
-        Curve::new(CurvePoint::new(4, 10), 11, 0)
+        WeierstrassCurve::new(CurvePoint::new(4, 10), 11, 0)
     }
 
-    fn create_bn128_curve() -> Curve {
+    fn create_bn128_curve() -> WeierstrassCurve {
         // Definition from https://eips.ethereum.org/EIPS/eip-197.
         let modulus = BigInt::parse_bytes(
             b"21888242871839275222246405745257275088696311157297823662689037894645226208583",
             10,
         )
         .expect("should be a valid base 10 number");
-        Curve::new(CurvePoint::new(1, 2), modulus, 0)
+        WeierstrassCurve::new(CurvePoint::new(1, 2), modulus, 0)
     }
 
     #[test]
@@ -274,12 +274,12 @@ mod tests {
 
         // Encodes the rational number 9 * 1/7.
         let nine_over_seven = BigInt::from(9)
-            * Curve::modular_multiplicative_inverse(7.into(), curve_order_bn128.clone());
+            * WeierstrassCurve::modular_multiplicative_inverse(7.into(), curve_order_bn128.clone());
         let nine_over_seven = Euclid::rem_euclid(&nine_over_seven, &curve_order_bn128);
 
         // Encodes the rational number 5 * 1/7.
         let one_half = BigInt::from(5)
-            * Curve::modular_multiplicative_inverse(7.into(), curve_order_bn128.clone());
+            * WeierstrassCurve::modular_multiplicative_inverse(7.into(), curve_order_bn128.clone());
         let five_over_seven = Euclid::rem_euclid(&one_half, &curve_order_bn128);
 
         let whole_multiplication = curve.multiply(2.into(), curve.generator.clone());
