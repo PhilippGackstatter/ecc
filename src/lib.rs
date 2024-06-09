@@ -1,4 +1,5 @@
 mod curve_point;
+pub mod curves;
 mod extended_euclidean;
 mod multiplicative_inverse;
 mod weierstrass_curve;

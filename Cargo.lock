@@ -78,6 +78,7 @@ version = "0.1.0"
 dependencies = [
  "k256",
  "num",
+ "once_cell",
  "rand",
 ]
 

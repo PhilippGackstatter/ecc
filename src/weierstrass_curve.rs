@@ -1,167 +1,58 @@
-use num::{traits::Euclid, BigInt};
+use crate::CurvePoint;
+use num::BigInt;
 
-use crate::{mod_mul_inverse, CurvePoint};
-
-pub struct WeierstrassCurve {
-    pub generator: CurvePoint,
-    pub field_modulus: BigInt,
-    pub parameter_a: BigInt,
-}
-
-impl WeierstrassCurve {
-    pub fn new(
-        generator: CurvePoint,
-        field_modulus: impl Into<BigInt>,
-        parameter_a: impl Into<BigInt>,
-    ) -> Self {
-        Self {
-            generator,
-            field_modulus: field_modulus.into(),
-            parameter_a: parameter_a.into(),
-        }
-    }
-
-    /// Multiplies `scalar` with `p` in logarithmic time.
-    pub fn multiply(&self, mut scalar: BigInt, p: CurvePoint) -> CurvePoint {
-        if scalar == BigInt::ZERO {
-            return CurvePoint::PointAtInfinity;
-        }
-
-        // The number of doublings we need to efficiently compute the multiplication.
-        let doublings = (scalar.bits() - 1) as usize;
-
-        // Create the doubling cache.
-        // The ith entry in the cache is the result of 2^i * p.
-        // +1 capacity to account for the 0th entry we add manually.
-        let mut double_cache = Vec::with_capacity(doublings + 1);
-        double_cache.push(p);
-
-        for i in 1..=doublings {
-            double_cache.push(self.add(double_cache[i - 1].clone(), double_cache[i - 1].clone()));
-        }
-
-        let mut result = CurvePoint::PointAtInfinity;
-        let two = BigInt::from(2);
-        while scalar != BigInt::ZERO {
-            // SAFETY: Subtracting 1 is fine since we never enter the loop
-            // if scalar is zero, and hence bits() always returns > 0.
-            let next_smaller_power_of_two = scalar.bits() - 1;
-            scalar -= two.pow(next_smaller_power_of_two as u32);
-            result = self.add(
-                result,
-                double_cache[next_smaller_power_of_two as usize].clone(),
-            );
-        }
-
-        result
-    }
-
-    /// Add two points on the elliptic curve.
-    ///
-    /// Formulas taken from https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication.
-    pub fn add(&self, p: CurvePoint, q: CurvePoint) -> CurvePoint {
-        match (&p, &q) {
-            (CurvePoint::PointAtInfinity, CurvePoint::PointAtInfinity) => {
-                CurvePoint::PointAtInfinity
-            }
-            (CurvePoint::PointAtInfinity, CurvePoint::Point { .. }) => q,
-            (CurvePoint::Point { .. }, CurvePoint::PointAtInfinity) => p,
-            (CurvePoint::Point { x: x_p, y: y_p }, CurvePoint::Point { x: x_q, y: y_q }) => {
-                if p == q {
-                    let lambda = (3 * x_p.pow(2) + &self.parameter_a)
-                        * (mod_mul_inverse(2 * y_p, self.field_modulus.clone()));
-                    let lambda = Euclid::rem_euclid(&lambda, &self.field_modulus);
-
-                    let x_r = lambda.pow(2) - 2 * x_p;
-                    let x_r = Euclid::rem_euclid(&x_r, &self.field_modulus);
-
-                    let y_r = lambda * (-&x_r + x_p) - y_p;
-                    let y_r = Euclid::rem_euclid(&y_r, &self.field_modulus);
-
-                    CurvePoint::Point { x: x_r, y: y_r }
-                } else if x_p == x_q {
-                    // If the x-coordinates match, there will be no intersection with a third point,
-                    // so we return the point at infinity.
-                    CurvePoint::PointAtInfinity
-                } else {
-                    let lambda =
-                        (y_q - y_p) * mod_mul_inverse(x_q - x_p, self.field_modulus.clone());
-                    let lambda = Euclid::rem_euclid(&lambda, &self.field_modulus);
-
-                    let x_r = lambda.pow(2) - x_p - x_q;
-                    let x_r = Euclid::rem_euclid(&x_r, &self.field_modulus);
-
-                    let y_r = lambda * (x_p - &x_r) - y_p;
-                    let y_r = Euclid::rem_euclid(&y_r, &self.field_modulus);
-
-                    CurvePoint::Point { x: x_r, y: y_r }
-                }
-            }
-        }
-    }
-
-    /// Returns the inverse `inv` of `point` such that `point` + `inv` equals the [`CurvePoint::PointAtInfinity`].
-    pub fn negate_point(&self, point: CurvePoint) -> CurvePoint {
-        let CurvePoint::Point { x, y } = point else {
-            // The inverse of the point at infinity is itself.
-            return CurvePoint::PointAtInfinity;
-        };
-
-        // The inverse of a point has the same x-coordinate,
-        // and the new y value satisfies old_y * new_y mod field_modulus = 1, i.e. the modular multiplicate inverse.
-        CurvePoint::Point {
-            x,
-            y: mod_mul_inverse(y, self.field_modulus.clone()),
-        }
-    }
+/// Parameter definitions for Weierstrass elliptic curves.
+pub trait WeierstrassCurve {
+    /// Returns the generator point of the curve.
+    fn generator() -> CurvePoint<Self>
+    where
+        Self: Sized;
+    /// Returns the parameter `a` of the curve.
+    fn a() -> BigInt;
+    /// Returns the field modulus of the curve.
+    fn field_modulus() -> BigInt;
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Add;
+
     use k256::elliptic_curve::{self, sec1::ToEncodedPoint};
-    use num::bigint::Sign;
+    use num::{bigint::Sign, traits::Euclid};
+    use once_cell::sync::Lazy;
+
+    use crate::{
+        curves::{Bn128, Secp256k1},
+        mod_mul_inverse, Point,
+    };
 
     use super::*;
 
-    fn create_test_curve() -> WeierstrassCurve {
-        // Generator Point for curve y^2 = x^3 + 3 mod 11.
-        WeierstrassCurve::new(CurvePoint::new(4, 10), 11, 0)
-    }
+    static GENERATOR: Lazy<CurvePoint<TestCurve>> =
+        Lazy::new(|| CurvePoint::new(BigInt::from(4), BigInt::from(10)));
+    static FIELD_MODULUS: Lazy<BigInt> = Lazy::new(|| BigInt::from(11));
+    /// A test curve for initial testing with a small modulus.
+    #[derive(Debug, PartialEq, Eq)]
+    struct TestCurve;
+    impl WeierstrassCurve for TestCurve {
+        fn generator() -> CurvePoint<Self>
+        where
+            Self: Sized,
+        {
+            GENERATOR.clone()
+        }
 
-    fn create_bn128_curve() -> WeierstrassCurve {
-        // Definition from https://eips.ethereum.org/EIPS/eip-197.
-        let modulus = BigInt::parse_bytes(
-            b"21888242871839275222246405745257275088696311157297823662689037894645226208583",
-            10,
-        )
-        .expect("should be a valid base 10 number");
-        WeierstrassCurve::new(CurvePoint::new(1, 2), modulus, 0)
-    }
+        fn a() -> BigInt {
+            BigInt::ZERO
+        }
 
-    fn create_secp256k1_curve() -> WeierstrassCurve {
-        // Parameters from https://en.bitcoin.it/wiki/Secp256k1.
-        let field_modulus = BigInt::parse_bytes(
-            b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
-            16,
-        )
-        .unwrap();
-        let a = BigInt::ZERO;
-        let x = BigInt::parse_bytes(
-            b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
-            16,
-        )
-        .unwrap();
-        let y = BigInt::parse_bytes(
-            b"483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
-            16,
-        )
-        .unwrap();
-
-        WeierstrassCurve::new(CurvePoint::new(x, y), field_modulus, a)
+        fn field_modulus() -> BigInt {
+            FIELD_MODULUS.clone()
+        }
     }
 
     #[test]
-    fn can_generate_all_points() {
+    fn can_generate_all_test_curve_points() {
         let expected_points = [
             CurvePoint::new(4, 10),
             CurvePoint::new(7, 7),
@@ -174,19 +65,17 @@ mod tests {
             CurvePoint::new(1, 2),
             CurvePoint::new(7, 4),
             CurvePoint::new(4, 1),
-            CurvePoint::PointAtInfinity,
+            CurvePoint::point_at_infinity(),
             CurvePoint::new(4, 10),
         ]
         .to_vec();
 
-        let curve = create_test_curve();
-
-        let mut computed_points = vec![curve.generator.clone()];
-        let mut new_point = curve.generator.clone();
+        let mut computed_points = vec![TestCurve::generator().clone()];
+        let mut new_point = TestCurve::generator().clone();
         loop {
-            new_point = curve.add(curve.generator.clone(), new_point);
+            new_point = TestCurve::generator() + &new_point;
             computed_points.push(new_point.clone());
-            if new_point == curve.generator {
+            if new_point == TestCurve::generator() {
                 break;
             }
         }
@@ -196,15 +85,14 @@ mod tests {
 
     #[test]
     fn scalar_point_multiplication() {
-        let curve = create_test_curve();
         // Equal to 2^8 + 2^4 + 2^2 + 2^0 to test doubling implementation.
         let scalar = 256 + 16 + 4 + 1;
 
-        let multiplication = curve.multiply(scalar.into(), curve.generator.clone());
+        let multiplication = TestCurve::generator() * &scalar.into();
 
-        let mut addition_result = CurvePoint::PointAtInfinity;
+        let mut addition_result = CurvePoint::point_at_infinity();
         for _ in 0..scalar {
-            addition_result = curve.add(addition_result, curve.generator.clone());
+            addition_result = addition_result + &TestCurve::generator();
         }
 
         assert_eq!(addition_result, multiplication);
@@ -227,49 +115,37 @@ mod tests {
             .unwrap(),
         );
 
-        let bn128 = create_bn128_curve();
-        let actual_result = bn128.multiply(scalar.into(), bn128.generator.clone());
+        let actual_result = Bn128::generator() * &scalar.into();
 
         assert_eq!(expected_result, actual_result);
     }
 
     #[test]
     fn negate_points() {
-        let curve = create_bn128_curve();
-        let random_point = curve.multiply(5000.into(), curve.generator.clone());
-        let negated = curve.negate_point(random_point.clone());
+        let random_point = Bn128::generator() * &5000.into();
+        let negated = random_point.negate();
+
+        assert_eq!(random_point + &negated, Point::PointAtInfinity.into());
 
         assert_eq!(
-            curve.add(random_point, negated),
-            CurvePoint::PointAtInfinity
-        );
-
-        assert_eq!(
-            curve.add(
-                CurvePoint::PointAtInfinity,
-                curve.negate_point(CurvePoint::PointAtInfinity)
-            ),
-            CurvePoint::PointAtInfinity
+            CurvePoint::<Bn128>::from(Point::PointAtInfinity)
+                + &(CurvePoint::from(Point::PointAtInfinity).negate()),
+            Point::PointAtInfinity.into()
         );
     }
 
     #[test]
     fn multiplication_is_associative() {
-        let curve = create_bn128_curve();
-        let left_first = curve.add(
-            curve.add(
-                curve.multiply(5.into(), curve.generator.clone()),
-                curve.multiply(15.into(), curve.generator.clone()),
-            ),
-            curve.multiply(7.into(), curve.generator.clone()),
+        let left_first = Add::add(
+            Bn128::generator() * &5.into() + &(Bn128::generator() * &15.into()),
+            &(Bn128::generator() * &7.into()),
         );
-        let right_first = curve.add(
-            curve.multiply(5.into(), curve.generator.clone()),
-            curve.add(
-                curve.multiply(15.into(), curve.generator.clone()),
-                curve.multiply(7.into(), curve.generator.clone()),
-            ),
+
+        let right_first = Add::add(
+            Bn128::generator() * &5.into(),
+            &(Bn128::generator() * &15.into() + &(Bn128::generator() * &7.into())),
         );
+
         assert_eq!(left_first, right_first);
     }
 
@@ -277,7 +153,6 @@ mod tests {
     /// This works because G * x = G * (x + curve_order), which implies (x + y) * G mod curve_order = x * G + y * G.
     #[test]
     fn encoding_rational_numbers() {
-        let curve = create_bn128_curve();
         let curve_order_bn128 = BigInt::parse_bytes(
             b"21888242871839275222246405745257275088548364400416034343698204186575808495617",
             10,
@@ -293,36 +168,34 @@ mod tests {
         let one_half = BigInt::from(5) * mod_mul_inverse(7.into(), curve_order_bn128.clone());
         let five_over_seven = Euclid::rem_euclid(&one_half, &curve_order_bn128);
 
-        let whole_multiplication = curve.multiply(2.into(), curve.generator.clone());
-        let rational_multiplication = curve.add(
-            curve.multiply(nine_over_seven, curve.generator.clone()),
-            curve.multiply(five_over_seven, curve.generator.clone()),
-        );
+        let whole_multiplication = Bn128::generator() * &2.into();
+        let rational_multiplication =
+            Bn128::generator() * &nine_over_seven + &(Bn128::generator() * &five_over_seven);
+
         assert_eq!(whole_multiplication, rational_multiplication);
     }
 
     /// Test that the public key computation run by k256 and this libary are equivalent.
     #[test]
     fn elliptic_curve_public_key_calculation() {
-        let sk1: [u8; 32] = rand::random();
+        let secret: [u8; 32] = rand::random();
 
-        let sk1_int = BigInt::from_bytes_be(num::bigint::Sign::Plus, &sk1);
-        let sk1 = k256::SecretKey::from_slice(&sk1).unwrap();
-        let pk1 = sk1.public_key();
+        let secret_int = BigInt::from_bytes_be(Sign::Plus, &secret);
+        let secret_key = k256::SecretKey::from_slice(&secret).unwrap();
+        let public_key = secret_key.public_key();
 
-        let curve = create_secp256k1_curve();
-        let pk = curve.multiply(sk1_int, curve.generator.clone());
+        let curve_pk = Secp256k1::generator() * &secret_int;
 
-        let CurvePoint::Point { x, y } = &pk else {
+        let Point::Point { x, y } = &curve_pk.point() else {
             panic!("expected regular point");
         };
 
-        let enc = pk1.to_encoded_point(false);
-        let pk_x = BigInt::from_bytes_be(Sign::Plus, enc.x().unwrap());
-        let pk_y = BigInt::from_bytes_be(Sign::Plus, enc.y().unwrap());
+        let encoded_point = public_key.to_encoded_point(false);
+        let public_key_x = BigInt::from_bytes_be(Sign::Plus, encoded_point.x().unwrap());
+        let public_key_y = BigInt::from_bytes_be(Sign::Plus, encoded_point.y().unwrap());
 
-        assert_eq!(x, &pk_x);
-        assert_eq!(y, &pk_y);
+        assert_eq!(x, &public_key_x);
+        assert_eq!(y, &public_key_y);
     }
 
     /// Test that ECDH run by k256 and this libary are equivalent.
@@ -352,12 +225,11 @@ mod tests {
         );
 
         // Run ECDH with this library.
-        let curve = create_secp256k1_curve();
-        let curve_pk1 = curve.multiply(sk1_int.clone(), curve.generator.clone());
-        let curve_pk2 = curve.multiply(sk2_int.clone(), curve.generator.clone());
+        let curve_pk1 = Secp256k1::generator() * &sk1_int;
+        let curve_pk2 = Secp256k1::generator() * &sk2_int;
 
-        let curve_shared_secret1 = curve.multiply(sk1_int, curve_pk2);
-        let curve_shared_secret2 = curve.multiply(sk2_int, curve_pk1);
+        let curve_shared_secret1 = curve_pk1 * &sk2_int;
+        let curve_shared_secret2 = curve_pk2 * &sk1_int;
 
         assert_eq!(curve_shared_secret1, curve_shared_secret2);
 
