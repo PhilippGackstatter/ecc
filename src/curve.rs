@@ -108,6 +108,21 @@ impl Curve {
         }
     }
 
+    /// Returns the inverse `inv` of `point` such that `point` + `inv` equals the [`CurvePoint::PointAtInfinity`].
+    pub fn negate_point(&self, point: CurvePoint) -> CurvePoint {
+        let CurvePoint::Point { x, y } = point else {
+            // The inverse of the point at infinity is itself.
+            return CurvePoint::PointAtInfinity;
+        };
+
+        // The inverse of a point has the same x-coordinate,
+        // and the new y value satisfies old_y * new_y mod field_modulus = 1, i.e. the modular multiplicate inverse.
+        CurvePoint::Point {
+            x,
+            y: Self::modular_multiplicative_inverse(y, self.field_modulus.clone()),
+        }
+    }
+
     /// Computes the modular multiplicative inverse `i` of `a mod b`, such that `a * i mod b = 1`.
     pub fn modular_multiplicative_inverse(a: BigInt, b: BigInt) -> BigInt {
         extended_euclidean(a, b).bezout_coefficient_a
@@ -204,6 +219,26 @@ mod tests {
         let actual_result = bn128.multiply(scalar.into(), bn128.generator.clone());
 
         assert_eq!(expected_result, actual_result);
+    }
+
+    #[test]
+    fn negate_points() {
+        let curve = create_bn128_curve();
+        let random_point = curve.multiply(5000.into(), curve.generator.clone());
+        let negated = curve.negate_point(random_point.clone());
+
+        assert_eq!(
+            curve.add(random_point, negated),
+            CurvePoint::PointAtInfinity
+        );
+
+        assert_eq!(
+            curve.add(
+                CurvePoint::PointAtInfinity,
+                curve.negate_point(CurvePoint::PointAtInfinity)
+            ),
+            CurvePoint::PointAtInfinity
+        );
     }
 
     #[test]
