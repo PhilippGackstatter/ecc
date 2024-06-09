@@ -13,4 +13,11 @@ impl CurvePoint {
             y: y.into(),
         }
     }
+
+    pub fn as_coordinates(&self) -> Option<(&BigInt, &BigInt)> {
+        match self {
+            CurvePoint::PointAtInfinity => None,
+            CurvePoint::Point { x, y } => Some((x, y)),
+        }
+    }
 }

@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 num = { version = "0.4.3", features = ["num-bigint"] }
+
+[dev-dependencies]
+k256 = { version = "0.13.3", features = ["ecdh"] }

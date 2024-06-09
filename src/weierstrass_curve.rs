@@ -67,8 +67,6 @@ impl WeierstrassCurve {
             (CurvePoint::PointAtInfinity, CurvePoint::Point { .. }) => q,
             (CurvePoint::Point { .. }, CurvePoint::PointAtInfinity) => p,
             (CurvePoint::Point { x: x_p, y: y_p }, CurvePoint::Point { x: x_q, y: y_q }) => {
-                println!("Computing {p:?} + {q:?}");
-
                 if p == q {
                     let lambda = (3 * x_p.pow(2) + &self.parameter_a)
                         * (Self::modular_multiplicative_inverse(
@@ -131,6 +129,12 @@ impl WeierstrassCurve {
 
 #[cfg(test)]
 mod tests {
+    use k256::{
+        elliptic_curve::{sec1::ToEncodedPoint, ScalarPrimitive},
+        FieldBytes,
+    };
+    use num::bigint::Sign;
+
     use super::*;
 
     fn create_test_curve() -> WeierstrassCurve {
@@ -146,6 +150,28 @@ mod tests {
         )
         .expect("should be a valid base 10 number");
         WeierstrassCurve::new(CurvePoint::new(1, 2), modulus, 0)
+    }
+
+    fn create_curve_secp256k1() -> WeierstrassCurve {
+        // Parameters from https://en.bitcoin.it/wiki/Secp256k1.
+        let field_modulus = BigInt::parse_bytes(
+            b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
+            16,
+        )
+        .unwrap();
+        let a = BigInt::ZERO;
+        let x = BigInt::parse_bytes(
+            b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
+            16,
+        )
+        .unwrap();
+        let y = BigInt::parse_bytes(
+            b"483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
+            16,
+        )
+        .unwrap();
+
+        WeierstrassCurve::new(CurvePoint::new(x, y), field_modulus, a)
     }
 
     #[test]
@@ -288,5 +314,33 @@ mod tests {
             curve.multiply(five_over_seven, curve.generator.clone()),
         );
         assert_eq!(whole_multiplication, rational_multiplication);
+    }
+
+    #[test]
+    fn k256_equivalence() {
+        // Random, static secret.
+        let sk1 = [
+            74, 250, 66, 158, 170, 197, 152, 171, 211, 234, 79, 156, 26, 40, 2, 70, 42, 165, 126,
+            242, 204, 180, 145, 216, 1, 174, 184, 132, 25, 131, 27, 11,
+        ];
+        let sk1_int = BigInt::from_bytes_be(num::bigint::Sign::Plus, &sk1);
+        let sk1 = k256::SecretKey::new(
+            ScalarPrimitive::from_bytes(FieldBytes::from_slice(&sk1)).unwrap(),
+        );
+        let pk1 = sk1.public_key();
+
+        let curve = create_curve_secp256k1();
+        let pk = curve.multiply(sk1_int, curve.generator.clone());
+
+        let CurvePoint::Point { x, y } = &pk else {
+            panic!("expected regular point");
+        };
+
+        let enc = pk1.to_encoded_point(false);
+        let pk_x = BigInt::from_bytes_be(Sign::Plus, enc.x().unwrap());
+        let pk_y = BigInt::from_bytes_be(Sign::Plus, enc.y().unwrap());
+
+        assert_eq!(x, &pk_x);
+        assert_eq!(y, &pk_y);
     }
 }
