@@ -1,6 +1,6 @@
 use num::{traits::Euclid, BigInt};
 
-use crate::{extended_euclidean::extended_euclidean, CurvePoint};
+use crate::{mod_mul_inverse, CurvePoint};
 
 pub struct WeierstrassCurve {
     pub generator: CurvePoint,
@@ -69,10 +69,7 @@ impl WeierstrassCurve {
             (CurvePoint::Point { x: x_p, y: y_p }, CurvePoint::Point { x: x_q, y: y_q }) => {
                 if p == q {
                     let lambda = (3 * x_p.pow(2) + &self.parameter_a)
-                        * (Self::modular_multiplicative_inverse(
-                            2 * y_p,
-                            self.field_modulus.clone(),
-                        ));
+                        * (mod_mul_inverse(2 * y_p, self.field_modulus.clone()));
                     let lambda = Euclid::rem_euclid(&lambda, &self.field_modulus);
 
                     let x_r = lambda.pow(2) - 2 * x_p;
@@ -87,11 +84,8 @@ impl WeierstrassCurve {
                     // so we return the point at infinity.
                     CurvePoint::PointAtInfinity
                 } else {
-                    let lambda = (y_q - y_p)
-                        * Self::modular_multiplicative_inverse(
-                            x_q - x_p,
-                            self.field_modulus.clone(),
-                        );
+                    let lambda =
+                        (y_q - y_p) * mod_mul_inverse(x_q - x_p, self.field_modulus.clone());
                     let lambda = Euclid::rem_euclid(&lambda, &self.field_modulus);
 
                     let x_r = lambda.pow(2) - x_p - x_q;
@@ -117,13 +111,8 @@ impl WeierstrassCurve {
         // and the new y value satisfies old_y * new_y mod field_modulus = 1, i.e. the modular multiplicate inverse.
         CurvePoint::Point {
             x,
-            y: Self::modular_multiplicative_inverse(y, self.field_modulus.clone()),
+            y: mod_mul_inverse(y, self.field_modulus.clone()),
         }
-    }
-
-    /// Computes the modular multiplicative inverse `i` of `a mod b`, such that `a * i mod b = 1`.
-    pub fn modular_multiplicative_inverse(a: BigInt, b: BigInt) -> BigInt {
-        extended_euclidean(a, b).bezout_coefficient_a
     }
 }
 
@@ -296,13 +285,12 @@ mod tests {
         .unwrap();
 
         // Encodes the rational number 9 * 1/7.
-        let nine_over_seven = BigInt::from(9)
-            * WeierstrassCurve::modular_multiplicative_inverse(7.into(), curve_order_bn128.clone());
+        let nine_over_seven =
+            BigInt::from(9) * mod_mul_inverse(7.into(), curve_order_bn128.clone());
         let nine_over_seven = Euclid::rem_euclid(&nine_over_seven, &curve_order_bn128);
 
         // Encodes the rational number 5 * 1/7.
-        let one_half = BigInt::from(5)
-            * WeierstrassCurve::modular_multiplicative_inverse(7.into(), curve_order_bn128.clone());
+        let one_half = BigInt::from(5) * mod_mul_inverse(7.into(), curve_order_bn128.clone());
         let five_over_seven = Euclid::rem_euclid(&one_half, &curve_order_bn128);
 
         let whole_multiplication = curve.multiply(2.into(), curve.generator.clone());
