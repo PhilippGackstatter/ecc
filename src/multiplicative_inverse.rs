@@ -10,7 +10,7 @@ use crate::extended_euclidean;
 ///
 /// ```
 /// # use num::BigInt;
-/// # use curvecrypto::mod_mul_inverse;
+/// # use ecc::mod_mul_inverse;
 /// assert_eq!(mod_mul_inverse(2.into(), 11.into()), BigInt::from(6));
 /// ```
 pub fn mod_mul_inverse(a: BigInt, b: BigInt) -> BigInt {
